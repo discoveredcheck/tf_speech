@@ -76,7 +76,7 @@ def create_parser():
     parser.add_argument(
         '--window_size_ms',
         type=float,
-        default=100.0,
+        default=50.0,
         help='How long each spectrogram timeslice is', )
     parser.add_argument(
         '--window_stride_ms',
@@ -91,7 +91,7 @@ def create_parser():
     parser.add_argument(
         '--how_many_training_steps',
         type=str,
-        default='8000,8000',
+        default='10000,10000',
         help='How many training loops to run', )
     parser.add_argument(
         '--eval_step_interval',
@@ -170,5 +170,17 @@ def create_parser():
         type=int,
         default=10,
         help='Attention model parameters'
+    )
+    parser.add_argument(
+        '--ckpt_name',
+        type=str,
+        default='model',
+        help='Name for saving models'
+    )
+    parser.add_argument(
+        '--raw_data',
+        type=bool,
+        default=False,
+        help='Use raw data'
     )
     return parser

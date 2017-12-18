@@ -376,15 +376,18 @@ class AudioProcessor(object):
     background_add = tf.add(background_mul, sliced_foreground)
     background_clamp = tf.clip_by_value(background_add, -1.0, 1.0)
     # Run the spectrogram and MFCC ops to get a 2D 'fingerprint' of the audio.
-    spectrogram = contrib_audio.audio_spectrogram(
-        background_clamp,
-        window_size=model_settings['window_size_samples'],
-        stride=model_settings['window_stride_samples'],
-        magnitude_squared=True)
-    self.mfcc_ = contrib_audio.mfcc(
-        spectrogram,
-        wav_decoder.sample_rate,
-        dct_coefficient_count=model_settings['dct_coefficient_count'])
+    if model_settings['raw_data']:
+      self.mfcc_ = background_clamp
+    else:
+      spectrogram = contrib_audio.audio_spectrogram(
+          background_clamp,
+          window_size=model_settings['window_size_samples'],
+          stride=model_settings['window_stride_samples'],
+          magnitude_squared=True)
+      self.mfcc_ = contrib_audio.mfcc(
+          spectrogram,
+          wav_decoder.sample_rate,
+          dct_coefficient_count=model_settings['dct_coefficient_count'])
 
   def set_size(self, mode):
     """Calculates the number of samples in the dataset partition.
@@ -429,7 +432,10 @@ class AudioProcessor(object):
     else:
       sample_count = max(0, min(how_many, len(candidates) - offset))
     # Data and labels will be populated and returned.
-    data = np.zeros((sample_count, model_settings['fingerprint_size']))
+    if model_settings['raw_data']:
+      data = np.zeros((sample_count, model_settings['sample_rate']))
+    else:
+      data = np.zeros((sample_count, model_settings['fingerprint_size']))
     labels = np.zeros((sample_count, model_settings['label_count']))
     names = []
     desired_samples = model_settings['desired_samples']

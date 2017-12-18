@@ -78,7 +78,7 @@ import numpy as np
 from six.moves import xrange  # pylint: disable=redefined-builtin
 import tensorflow as tf
 
-import input_data_prediction
+import input_data
 import models
 from tensorflow.python.platform import gfile
 
@@ -92,13 +92,19 @@ def main(_):
     sess = tf.InteractiveSession()
 
     model_settings = models.prepare_model_settings(
-      len(input_data_prediction.prepare_words_list(FLAGS.wanted_words.split(','))),
+      len(input_data.prepare_words_list(FLAGS.wanted_words.split(','))),
       FLAGS.sample_rate, FLAGS.clip_duration_ms, FLAGS.window_size_ms,
-      FLAGS.window_stride_ms, FLAGS.dct_coefficient_count, FLAGS.num_layers, FLAGS.num_units, FLAGS.use_attn, FLAGS.attn_size)
+      FLAGS.window_stride_ms, FLAGS.dct_coefficient_count, FLAGS.num_layers, FLAGS.num_units, FLAGS.use_attn, FLAGS.attn_size, FLAGS)
 
-    print('FLAGS.data_dir: ', FLAGS.data_dir)
-    audio_processor = input_data_prediction.AudioProcessor(FLAGS.data_dir, model_settings)
+    audio_processor = input_data.AudioProcessor(
+        FLAGS.data_url, FLAGS.data_dir, FLAGS.silence_percentage,
+        FLAGS.unknown_percentage,
+        FLAGS.wanted_words.split(','), FLAGS.validation_percentage,
+        FLAGS.testing_percentage, model_settings)
+
+
     fingerprint_size = model_settings['fingerprint_size']
+    label_count = model_settings['label_count']
 
     # (N x fingerprint_size)
     fingerprint_input = tf.placeholder(tf.float32, [None, fingerprint_size], name='fingerprint_input')
@@ -110,7 +116,15 @@ def main(_):
       is_training=True)
 
     # Define loss and optimizer
+    ground_truth_input = tf.placeholder(tf.float32, [None, label_count], name='groundtruth_input')
+
+    # Define loss and optimizer
     predicted_indices = tf.argmax(logits, 1)
+    expected_indices = tf.argmax(ground_truth_input, 1)
+    correct_prediction = tf.equal(predicted_indices, expected_indices)
+    confusion_matrix = tf.confusion_matrix(expected_indices, predicted_indices, num_classes=label_count)
+    evaluation_step = tf.reduce_mean(tf.cast(correct_prediction, tf.float32))
+    tf.summary.scalar('accuracy', evaluation_step)
 
     print('\n\nFLAGS ===>', FLAGS)
 
@@ -121,43 +135,66 @@ def main(_):
     set_size = audio_processor.set_size('testing')
     tf.logging.info('set_size=%d', set_size)
 
-    print('before audio_processor')
-    refresh_fingerprints = False
-    if refresh_fingerprints:
-        test_fingerprints = audio_processor.get_data(model_settings, sess)
-        print('test_fingerprints: ', test_fingerprints.shape)
-        np.save('test_fingerprints.npy', test_fingerprints)
-    else:
-        test_fingerprints = np.load('test_fingerprints.npy')
-        
-    names = {}
-    names[0] = 'silence'
-    names[1] = 'unknown'
-    names[2] = 'yes'
-    names[3] = 'no'
-    names[4] = 'up'
-    names[5] = 'down'
-    names[6] = 'left'
-    names[7] = 'right'
-    names[8] = 'on'
-    names[9] = 'off'
-    names[10] = 'stop'
-    names[11] = 'go'
+    set_size = audio_processor.set_size('testing')
+    tf.logging.info('set_size=%d', set_size)
+    total_accuracy = 0
+    total_conf_matrix = None
+    prob_list = []
+    predict_idx_list = []
+    expeted_idx_list = []
+    emb_list = []
+    label_list = []
+    for i in xrange(0, set_size, FLAGS.batch_size):
+        test_fingerprints, test_ground_truth, _ = audio_processor.get_data(FLAGS.batch_size, i, model_settings, 0.0, 0.0, 0, 'testing', sess)
+        if True:
+            test_accuracy, conf_matrix, prob, predict_idx, expected_idx = sess.run(
+                [evaluation_step, confusion_matrix, tf.nn.softmax(logits), predicted_indices, expected_indices],
+                feed_dict={
+                    fingerprint_input: test_fingerprints,
+                    ground_truth_input: test_ground_truth,
+                    dropout_prob: 1.0
+                })
 
-    filenames = [x.split('/')[-1] for x in audio_processor.testing_data]
-    with open('predictions.txt', 'w') as f:
-        f.write('fname,label\n')
-        bsize = 1000
-        for i in range(0, len(test_fingerprints), bsize):
-            print('batch: '+str(i))
-            en = min(i+bsize, len(test_fingerprints))
-            predictions = sess.run(predicted_indices,
-            feed_dict={
-                fingerprint_input: test_fingerprints[i:en, :],
-                dropout_prob: 1.0
-            })
-            for a, b in zip(filenames[i:en], predictions):
-                f.write(a+','+names[b]+'\n')
+            prob_list.append(prob)
+            predict_idx_list.append(predict_idx)
+            expeted_idx_list.append(expected_idx)
+
+            batch_size = min(FLAGS.batch_size, set_size - i)
+            total_accuracy += (test_accuracy * batch_size) / set_size
+            if total_conf_matrix is None:
+              total_conf_matrix = conf_matrix
+            else:
+              total_conf_matrix += conf_matrix
+        else:
+            emb = sess.run(tf.get_default_graph().get_tensor_by_name('rnn/transpose:0')[:, -1, :],
+                           feed_dict={fingerprint_input: test_fingerprints,
+                                      ground_truth_input: test_ground_truth,
+                                      dropout_prob: 1.0})
+            emb_list.append(emb)
+            label_list.append(test_ground_truth)
+
+    if True:
+        prob_numpy = np.concatenate(prob_list)
+        predict_idx_numpy = np.concatenate(predict_idx_list)
+        expeted_idx_numpy = np.concatenate(expeted_idx_list)
+        print(prob_numpy.shape, predict_idx_numpy.shape, expeted_idx_numpy.shape)
+    else:
+        np.save('embedding_test.npy', np.concatenate(emb_list))
+        np.save('labels_test.npy', np.concatenate(label_list))
+
+
+
+    np.save('prob_numpy.npy', prob_numpy)
+    np.save('predict_idx_numpy.npy', predict_idx_numpy)
+    np.save('expeted_idx_numpy.npy', expeted_idx_numpy)
+
+    tf.logging.info('Confusion Matrix:\n %s' % (total_conf_matrix))
+    for _c in range(label_count):
+        tf.logging.info('Testing without %d = %.1f%%' % (_c, 100 * (total_conf_matrix.trace() - total_conf_matrix[_c,_c]) / (total_conf_matrix.sum().sum() - total_conf_matrix[_c,:].sum() - total_conf_matrix[:, _c].sum() +total_conf_matrix[_c,_c])))
+
+    tf.logging.info('Final test accuracy = %.1f%% (N=%d)' % (total_accuracy * 100, set_size))
+
+
 
 
 if __name__ == '__main__':

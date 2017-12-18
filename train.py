@@ -98,7 +98,7 @@ def main(_):
   model_settings = models.prepare_model_settings(
       len(input_data.prepare_words_list(FLAGS.wanted_words.split(','))),
       FLAGS.sample_rate, FLAGS.clip_duration_ms, FLAGS.window_size_ms,
-      FLAGS.window_stride_ms, FLAGS.dct_coefficient_count, FLAGS.num_layers, FLAGS.num_units, FLAGS.use_attn, FLAGS.attn_size)
+      FLAGS.window_stride_ms, FLAGS.dct_coefficient_count, FLAGS.num_layers, FLAGS.num_units, FLAGS.use_attn, FLAGS.attn_size, FLAGS)
   audio_processor = input_data.AudioProcessor(
       FLAGS.data_url, FLAGS.data_dir, FLAGS.silence_percentage,
       FLAGS.unknown_percentage,
@@ -180,14 +180,16 @@ def main(_):
   tf.logging.info('Training from step: %d ', start_step)
 
   # Save graph.pbtxt.
-  tf.train.write_graph(sess.graph_def, FLAGS.train_dir, FLAGS.model_architecture + '.pbtxt')
+  tf.train.write_graph(sess.graph_def, FLAGS.train_dir, FLAGS.ckpt_name + '.pbtxt')
 
   # Save list of words.
-  with gfile.GFile(os.path.join(FLAGS.train_dir, FLAGS.model_architecture + '_labels.txt'), 'w') as f:
+  with gfile.GFile(os.path.join(FLAGS.train_dir, FLAGS.ckpt_name + '_labels.txt'), 'w') as f:
     f.write('\n'.join(audio_processor.words_list))
 
   # Training loop.
   training_steps_max = np.sum(training_steps_list)
+  emb_list = []
+  label_list=[]
   for training_step in xrange(start_step, training_steps_max + 1):
     # Figure out what the current learning rate is.
     training_steps_sum = 0
@@ -197,22 +199,35 @@ def main(_):
         learning_rate_value = learning_rates_list[i]
         break
     # Pull the audio samples we'll use for training.
+    # FLAGS.batch_size
     train_fingerprints, train_ground_truth, _ = audio_processor.get_data(FLAGS.batch_size, 0, model_settings, FLAGS.background_frequency, FLAGS.background_volume, time_shift_samples, 'training', sess)
     # Run the graph with this batch of training data.
-    train_summary, train_accuracy, cross_entropy_value, _, _ = sess.run(
-        [
-            merged_summaries, evaluation_step, cross_entropy_mean, train_step,
-            increment_global_step
-        ],
-        feed_dict={
-            fingerprint_input: train_fingerprints,
-            ground_truth_input: train_ground_truth,
-            learning_rate_input: learning_rate_value,
-            dropout_prob: FLAGS.dropout_prob
-        })
-    train_writer.add_summary(train_summary, training_step)
-    if training_step % 1000 == 0:
-        tf.logging.info('Step #%d: rate %f, accuracy %.1f%%, cross entropy %f' % (training_step, learning_rate_value, train_accuracy * 100, cross_entropy_value))
+    if True:
+        train_summary, train_accuracy, cross_entropy_value, _, _ = sess.run(
+            [
+                merged_summaries, evaluation_step, cross_entropy_mean, train_step,
+                increment_global_step
+            ],
+            feed_dict={
+                fingerprint_input: train_fingerprints,
+                ground_truth_input: train_ground_truth,
+                learning_rate_input: learning_rate_value,
+                dropout_prob: FLAGS.dropout_prob
+            })
+        train_writer.add_summary(train_summary, training_step)
+        if training_step % 1000 == 0:
+            tf.logging.info('Step #%d: rate %f, accuracy %.1f%%, cross entropy %f' % (
+            training_step, learning_rate_value, train_accuracy * 100, cross_entropy_value))
+    else:
+        emb = sess.run(tf.get_default_graph().get_tensor_by_name('rnn/transpose:0')[:,-1,:], feed_dict={fingerprint_input: train_fingerprints,
+                                                               ground_truth_input: train_ground_truth,
+                                                                learning_rate_input: learning_rate_value,
+                                                                dropout_prob: FLAGS.dropout_prob})
+        emb_list.append(emb)
+        label_list.append(train_ground_truth)
+
+
+
     is_last_step = (training_step == training_steps_max)
     if (training_step % FLAGS.eval_step_interval) == 0 or is_last_step:
       set_size = audio_processor.set_size('validation')
@@ -236,17 +251,24 @@ def main(_):
           total_conf_matrix = conf_matrix
         else:
           total_conf_matrix += conf_matrix
+
       tf.logging.info('Confusion Matrix:\n %s' % (total_conf_matrix))
+      tf.logging.info('Step %d: Validation without Unk = %.1f%%' % (training_step, 100*(total_conf_matrix.trace() - total_conf_matrix[1, 1]) / (total_conf_matrix.sum().sum() - total_conf_matrix[1, :].sum() - total_conf_matrix[:, 1].sum() + total_conf_matrix[1, 1])))
       tf.logging.info('Step %d: Validation accuracy = %.1f%% (N=%d)' % (training_step, total_accuracy * 100, set_size))
+
 
     # Save the model checkpoint periodically.
     if (training_step % FLAGS.save_step_interval == 0 or
         training_step == training_steps_max):
       checkpoint_path = os.path.join(FLAGS.train_dir,
-                                     FLAGS.model_architecture + '.ckpt')
+                                     FLAGS.ckpt_name + '.ckpt')
       tf.logging.info('Saving to "%s-%d"', checkpoint_path, training_step)
       saver.save(sess, checkpoint_path, global_step=training_step)
 
+  if False:
+    np.save('embedding.npy', np.concatenate(emb_list))
+    np.save('labels.npy', np.concatenate(label_list))
+    exit(1)
   set_size = audio_processor.set_size('testing')
   tf.logging.info('set_size=%d', set_size)
   total_accuracy = 0

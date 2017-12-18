@@ -9,11 +9,12 @@ if __name__ == '__main__':
     print('starting')
     parser = create_parser()
     FLAGS, unparsed = parser.parse_known_args()
+    FLAGS.raw_data=False
 
     model_settings = models.prepare_model_settings(
         len(input_data.prepare_words_list(FLAGS.wanted_words.split(','))),
         FLAGS.sample_rate, FLAGS.clip_duration_ms, FLAGS.window_size_ms,
-        FLAGS.window_stride_ms, FLAGS.dct_coefficient_count, FLAGS.num_layers, FLAGS.num_units, False, False)
+        FLAGS.window_stride_ms, FLAGS.dct_coefficient_count, FLAGS.num_layers, FLAGS.num_units, False, False, FLAGS)
 
     audio_processor = input_data.AudioProcessor(
           FLAGS.data_url, FLAGS.data_dir, FLAGS.silence_percentage,
@@ -25,7 +26,7 @@ if __name__ == '__main__':
     sess = tf.InteractiveSession()
 
 
-    num_data = 10
+    num_data = 1000
     data, labels, names = audio_processor.get_data(num_data, 0, model_settings, FLAGS.background_frequency, FLAGS.background_volume, time_shift_samples, 'training', sess)
 
     print('word_to_index: ', audio_processor.word_to_index)
@@ -33,12 +34,17 @@ if __name__ == '__main__':
     spectrogram_length = model_settings['spectrogram_length']
     dct_coefficient_count = model_settings['dct_coefficient_count']
 
-    i=0
     plt.figure()
-    plt.title(names[i])
-    plt.imshow(data[i, :].reshape(spectrogram_length, dct_coefficient_count)[:, :])
-    plt.colorbar()
-    plt.show()
+    for i in range(num_data):
+        if names[i] == 'no':
+            plt.title(names[i])
+            if FLAGS.raw_data:
+                plt.plot(data[i, :])
+            else:
+                plt.imshow(data[i, :].reshape(spectrogram_length, -1)[:, 1:])
+                plt.colorbar()
+            plt.show(True)
+            plt.gca().cla()
     print('end')
 
 

@@ -152,57 +152,15 @@ class AudioProcessor(object):
   """Handles loading, partitioning, and preparing audio training data."""
 
   def __init__(self, data_dir, model_settings):
-    self.data_dir = '/home/ashukla/devel/spch/speech_dataset/test/audio'
-    #self.data_dir = '/home/ashukla/devel/spch/speech_dataset/tmp'
-
-    self.load_data()
-    self.prepare_background_data()
-    print('prepare processing graph')
-    self.prepare_processing_graph(model_settings)
-    print('AudioProcessor finished')
-
-  def load_data(self):
     self.testing_data = []
+    self.load_data(data_dir)
+    self.prepare_processing_graph(model_settings)
+
+  def load_data(self, data_dir):
     # Look through all the subfolders to find audio samples
-    search_path = os.path.join(self.data_dir, '*.wav')
+    search_path = os.path.join(data_dir, '*.wav')
     for wav_path in gfile.Glob(search_path):
-      self.testing_data.append(wav_path)
-
-  def prepare_background_data(self):
-    """Searches a folder for background noise audio, and loads it into memory.
-
-    It's expected that the background audio samples will be in a subdirectory
-    named '_background_noise_' inside the 'data_dir' folder, as .wavs that match
-    the sample rate of the training data, but can be much longer in duration.
-
-    If the '_background_noise_' folder doesn't exist at all, this isn't an
-    error, it's just taken to mean that no background noise augmentation should
-    be used. If the folder does exist, but it's empty, that's treated as an
-    error.
-
-    Returns:
-      List of raw PCM-encoded audio samples of background noise.
-
-    Raises:
-      Exception: If files aren't found in the folder.
-    """
-    self.background_data = []
-    background_dir = os.path.join(self.data_dir, BACKGROUND_NOISE_DIR_NAME)
-    if not os.path.exists(background_dir):
-      return self.background_data
-    with tf.Session(graph=tf.Graph()) as sess:
-      wav_filename_placeholder = tf.placeholder(tf.string, [])
-      wav_loader = io_ops.read_file(wav_filename_placeholder)
-      wav_decoder = contrib_audio.decode_wav(wav_loader, desired_channels=1)
-      search_path = os.path.join(self.data_dir, BACKGROUND_NOISE_DIR_NAME,
-                                 '*.wav')
-      for wav_path in gfile.Glob(search_path):
-        wav_data = sess.run(
-            wav_decoder,
-            feed_dict={wav_filename_placeholder: wav_path}).audio.flatten()
-        self.background_data.append(wav_data)
-      if not self.background_data:
-        raise Exception('No background wav files were found in ' + search_path)
+        self.testing_data.append(wav_path)
 
   def prepare_processing_graph(self, model_settings):
     """Builds a TensorFlow graph to apply the input distortions.
@@ -228,12 +186,10 @@ class AudioProcessor(object):
     desired_samples = model_settings['desired_samples']
     self.wav_filename_placeholder_ = tf.placeholder(tf.string, [])
     wav_loader = io_ops.read_file(self.wav_filename_placeholder_)
-    wav_decoder = contrib_audio.decode_wav(
-        wav_loader, desired_channels=1, desired_samples=desired_samples)
+    wav_decoder = contrib_audio.decode_wav(wav_loader, desired_channels=1, desired_samples=desired_samples)
     # Allow the audio sample's volume to be adjusted.
     self.foreground_volume_placeholder_ = tf.placeholder(tf.float32, [])
-    scaled_foreground = tf.multiply(wav_decoder.audio,
-                                    self.foreground_volume_placeholder_)
+    scaled_foreground = tf.multiply(wav_decoder.audio, self.foreground_volume_placeholder_)
     # Shift the sample's start position, and pad any gaps with zeros.
     self.time_shift_padding_placeholder_ = tf.placeholder(tf.int32, [2, 2])
     self.time_shift_offset_placeholder_ = tf.placeholder(tf.int32, [2])
@@ -245,11 +201,9 @@ class AudioProcessor(object):
                                  self.time_shift_offset_placeholder_,
                                  [desired_samples, -1])
     # Mix in background noise.
-    self.background_data_placeholder_ = tf.placeholder(tf.float32,
-                                                       [desired_samples, 1])
+    self.background_data_placeholder_   = tf.placeholder(tf.float32, [desired_samples, 1])
     self.background_volume_placeholder_ = tf.placeholder(tf.float32, [])
-    background_mul = tf.multiply(self.background_data_placeholder_,
-                                 self.background_volume_placeholder_)
+    background_mul = tf.multiply(self.background_data_placeholder_, self.background_volume_placeholder_)
     background_add = tf.add(background_mul, sliced_foreground)
     background_clamp = tf.clip_by_value(background_add, -1.0, 1.0)
     # Run the spectrogram and MFCC ops to get a 2D 'fingerprint' of the audio.
@@ -263,7 +217,7 @@ class AudioProcessor(object):
         wav_decoder.sample_rate,
         dct_coefficient_count=model_settings['dct_coefficient_count'])
 
-  def set_size(self, mode):
+  def set_size(self):
     """Calculates the number of samples in the dataset partition.
 
     Args:
