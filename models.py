@@ -144,8 +144,9 @@ def load_variables_from_checkpoint(sess, start_checkpoint):
     for v in tf.global_variables():
       to_check = v.name if v.name[-2:] != ':0' else v.name[:-2]
       if reader.has_tensor(to_check):
-        print(v.name)
         nlist[v.op.name] = v
+      else:
+        print('!!WARNING!! op {} not found in checkpoint'.format(v.name))
     saver = tf.train.Saver(nlist)
     saver.restore(sess, start_checkpoint)
 
