@@ -133,7 +133,9 @@ def load_variables_from_checkpoint(sess, start_checkpoint):
     sess: TensorFlow session.
     start_checkpoint: Path to saved checkpoint on disk.
   """
-  saver = tf.train.Saver(tf.global_variables())
+  #saver = tf.train.Saver(tf.global_variables())
+  #saver = tf.train.import_meta_graph(start_checkpoint+'.meta')
+  saver = tf.train.Saver()
   saver.restore(sess, start_checkpoint)
 
 
@@ -254,19 +256,18 @@ def create_lstm_model(fingerprint_input, model_settings, is_training):
     stacked_lstm = tf.contrib.rnn.MultiRNNCell([lstm_cell(lstm_size) for _ in range(number_of_layers)])
     output, state = tf.nn.dynamic_rnn(stacked_lstm, fingerprint_2d, dtype=tf.float32)
 
-    if is_pretraining:
-        if is_training:
-            return output, dropout_prob
-        else:
-            return output
-
     label_count = model_settings['label_count']
-
     final_fc = tf.layers.dense(output[:, -1, :], label_count)
 
-    if is_training:
-        return final_fc, dropout_prob
+    if is_pretraining:
+      if is_training:
+        return output, dropout_prob
+      else:
+        return output
     else:
+      if is_training:
+        return final_fc, dropout_prob
+      else:
         return final_fc
 
 

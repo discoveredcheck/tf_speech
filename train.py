@@ -141,12 +141,13 @@ def main(_):
     checks = tf.add_check_numerics_ops()
     control_dependencies = [checks]
 
-  if FLAGS.pretrain:
+  if FLAGS.pretrain==1:
     # Create the unsupervised pretraining loss
     input_frequency_size = model_settings['dct_coefficient_count']
     input_time_size = model_settings['spectrogram_length']
     fingerprint_2d = tf.reshape(fingerprint_input, [-1, input_time_size, input_frequency_size])
-    projected = tf.layers.dense(logits, units=input_frequency_size, activation=tf.tanh)
+    projected = tf.layers.dense(logits, units=input_frequency_size, use_bias=True, name='lstm_reconst')
+    
     bsize = tf.shape(projected)[0]
     next_word = tf.pad(fingerprint_2d[:,1:,:], [[0,0],[0,1],[0,0]])
     cross_entropy_mean = tf.losses.mean_squared_error(next_word, projected)
@@ -163,7 +164,7 @@ def main(_):
         tf.float32, [], name='learning_rate_input')
     train_step = tf.train.AdamOptimizer().minimize(cross_entropy_mean)
 
-  if FLAGS.pretrain:
+  if FLAGS.pretrain==1:
     evaluation_step = cross_entropy_mean
     confusion_matrix = tf.no_op()
     predicted_indices = tf.no_op()
@@ -188,9 +189,6 @@ def main(_):
   validation_writer = tf.summary.FileWriter(FLAGS.summaries_dir + '/validation')
 
   tf.global_variables_initializer().run()
-
-  start_step = 1
-  print('\n\nFLAGS ===>', FLAGS)
 
   if FLAGS.start_checkpoint:
     models.load_variables_from_checkpoint(sess, FLAGS.start_checkpoint)
@@ -271,7 +269,7 @@ def main(_):
         else:
           total_conf_matrix += conf_matrix
 
-      if FLAGS.pretrain:
+      if FLAGS.pretrain==1:
         tf.logging.info('Step %d: Validation accuracy = %.1f%% (N=%d)' % (training_step, total_accuracy * 100, set_size))
       else:
         tf.logging.info('Confusion Matrix:\n %s' % (total_conf_matrix))

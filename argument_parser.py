@@ -14,7 +14,7 @@ def create_parser():
     parser.add_argument(
         '--data_dir',
         type=str,
-        default='/home/guillaume/speech_dataset/',
+        default='/home/ashukla/devel/spch/speech_dataset/train/audio',
         help="""\
          Where to download the speech training data to.
          """)
@@ -121,7 +121,7 @@ def create_parser():
     parser.add_argument(
         '--train_dir',
         type=str,
-        default='/home/guillaume/speech_dataset/speech_commands_train',
+        default='/home/ashukla/devel/spch/speech_dataset/speech_commands_train',
         help='Directory to write event logs and checkpoint.')
     parser.add_argument(
         '--save_step_interval',
@@ -182,5 +182,11 @@ def create_parser():
         type=bool,
         default=False,
         help='Use raw data'
+    )
+    parser.add_argument(
+        '--pretrain',
+        type=int,
+        default=0,
+        help='Use pretraining loss'
     )
     return parser
