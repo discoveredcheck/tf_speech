@@ -133,10 +133,21 @@ def load_variables_from_checkpoint(sess, start_checkpoint):
     sess: TensorFlow session.
     start_checkpoint: Path to saved checkpoint on disk.
   """
-  #saver = tf.train.Saver(tf.global_variables())
-  #saver = tf.train.import_meta_graph(start_checkpoint+'.meta')
-  saver = tf.train.Saver()
-  saver.restore(sess, start_checkpoint)
+  if False:
+    #saver = tf.train.Saver(tf.global_variables())
+    #saver = tf.train.import_meta_graph(start_checkpoint+'.meta')
+    saver = tf.train.Saver()
+    saver.restore(sess, start_checkpoint)
+  else:
+    reader = tf.train.NewCheckpointReader(start_checkpoint)
+    nlist = dict()
+    for v in tf.global_variables():
+      to_check = v.name if v.name[-2:] != ':0' else v.name[:-2]
+      if reader.has_tensor(to_check):
+        print(v.name)
+        nlist[v.op.name] = v
+    saver = tf.train.Saver(nlist)
+    saver.restore(sess, start_checkpoint)
 
 
 def create_single_fc_model(fingerprint_input, model_settings, is_training):
