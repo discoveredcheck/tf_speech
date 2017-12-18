@@ -131,9 +131,9 @@ def main(_):
       FLAGS.model_architecture,
       is_training=True)
 
-  # Define loss and optimizer
+    # Define loss and optimizer
   ground_truth_input = tf.placeholder(tf.float32, [None, label_count], name='groundtruth_input')
-
+    
   # Optionally we can add runtime checks to spot when NaNs or other symptoms of
   # numerical errors start occurring during training.
   control_dependencies = []
@@ -141,23 +141,42 @@ def main(_):
     checks = tf.add_check_numerics_ops()
     control_dependencies = [checks]
 
-  # Create the back propagation and training evaluation machinery in the graph.
-  with tf.name_scope('cross_entropy'):
-    cross_entropy_mean = tf.reduce_mean(
-        tf.nn.softmax_cross_entropy_with_logits(
-            labels=ground_truth_input, logits=logits))
+  if FLAGS.pretrain:
+    # Create the unsupervised pretraining loss
+    input_frequency_size = model_settings['dct_coefficient_count']
+    input_time_size = model_settings['spectrogram_length']
+    fingerprint_2d = tf.reshape(fingerprint_input, [-1, input_time_size, input_frequency_size])
+    projected = tf.layers.dense(logits, units=input_frequency_size, activation=tf.tanh)
+    bsize = tf.shape(projected)[0]
+    next_word = tf.pad(fingerprint_2d[:,1:,:], [[0,0],[0,1],[0,0]])
+    cross_entropy_mean = tf.losses.mean_squared_error(next_word, projected)
+  else:
+    # Create the back propagation and training evaluation machinery in the graph.
+    with tf.name_scope('cross_entropy'):
+      cross_entropy_mean = tf.reduce_mean(
+          tf.nn.softmax_cross_entropy_with_logits(
+              labels=ground_truth_input, logits=logits))
+
   tf.summary.scalar('cross_entropy', cross_entropy_mean)
   with tf.name_scope('train'), tf.control_dependencies(control_dependencies):
     learning_rate_input = tf.placeholder(
         tf.float32, [], name='learning_rate_input')
     train_step = tf.train.AdamOptimizer().minimize(cross_entropy_mean)
-  predicted_indices = tf.argmax(logits, 1)
-  expected_indices = tf.argmax(ground_truth_input, 1)
-  correct_prediction = tf.equal(predicted_indices, expected_indices)
-  confusion_matrix = tf.confusion_matrix(expected_indices, predicted_indices, num_classes=label_count)
-  evaluation_step = tf.reduce_mean(tf.cast(correct_prediction, tf.float32))
-  tf.summary.scalar('accuracy', evaluation_step)
 
+  if FLAGS.pretrain:
+    evaluation_step = cross_entropy_mean
+    confusion_matrix = tf.no_op()
+    predicted_indices = tf.no_op()
+    expected_indices = tf.no_op()
+    correct_prediction = tf.no_op()
+  else:
+    predicted_indices = tf.argmax(logits, 1)
+    expected_indices = tf.argmax(ground_truth_input, 1)
+    correct_prediction = tf.equal(predicted_indices, expected_indices)
+    confusion_matrix = tf.confusion_matrix(expected_indices, predicted_indices, num_classes=label_count)
+    evaluation_step = tf.reduce_mean(tf.cast(correct_prediction, tf.float32))
+
+  tf.summary.scalar('accuracy', evaluation_step)
   global_step = tf.contrib.framework.get_or_create_global_step()
   increment_global_step = tf.assign(global_step, global_step + 1)
 
@@ -203,21 +222,21 @@ def main(_):
     train_fingerprints, train_ground_truth, _ = audio_processor.get_data(FLAGS.batch_size, 0, model_settings, FLAGS.background_frequency, FLAGS.background_volume, time_shift_samples, 'training', sess)
     # Run the graph with this batch of training data.
     if True:
-        train_summary, train_accuracy, cross_entropy_value, _, _ = sess.run(
-            [
-                merged_summaries, evaluation_step, cross_entropy_mean, train_step,
-                increment_global_step
-            ],
-            feed_dict={
-                fingerprint_input: train_fingerprints,
-                ground_truth_input: train_ground_truth,
-                learning_rate_input: learning_rate_value,
-                dropout_prob: FLAGS.dropout_prob
-            })
-        train_writer.add_summary(train_summary, training_step)
-        if training_step % 1000 == 0:
-            tf.logging.info('Step #%d: rate %f, accuracy %.1f%%, cross entropy %f' % (
-            training_step, learning_rate_value, train_accuracy * 100, cross_entropy_value))
+      train_summary, train_accuracy, cross_entropy_value, _, _ = sess.run(
+              [
+                  merged_summaries, evaluation_step, cross_entropy_mean, train_step,
+                  increment_global_step
+              ],
+              feed_dict={
+                  fingerprint_input: train_fingerprints,
+                  ground_truth_input: train_ground_truth,
+                  learning_rate_input: learning_rate_value,
+                  dropout_prob: FLAGS.dropout_prob
+              })
+      train_writer.add_summary(train_summary, training_step)
+      if training_step % 1000 == 0:
+        tf.logging.info('Step #%d: rate %f, accuracy %.1f%%, cross entropy %f' % (
+          training_step, learning_rate_value, train_accuracy * 100, cross_entropy_value))
     else:
         emb = sess.run(tf.get_default_graph().get_tensor_by_name('rnn/transpose:0')[:,-1,:], feed_dict={fingerprint_input: train_fingerprints,
                                                                ground_truth_input: train_ground_truth,
@@ -238,12 +257,12 @@ def main(_):
         # Run a validation step and capture training summaries for TensorBoard
         # with the `merged` op.
         validation_summary, validation_accuracy, conf_matrix = sess.run(
-            [merged_summaries, evaluation_step, confusion_matrix],
-            feed_dict={
-                fingerprint_input: validation_fingerprints,
-                ground_truth_input: validation_ground_truth,
-                dropout_prob: 1.0
-            })
+              [merged_summaries, evaluation_step, confusion_matrix],
+              feed_dict={
+                  fingerprint_input: validation_fingerprints,
+                  ground_truth_input: validation_ground_truth,
+                  dropout_prob: 1.0
+              })
         validation_writer.add_summary(validation_summary, training_step)
         batch_size = min(FLAGS.batch_size, set_size - i)
         total_accuracy += (validation_accuracy * batch_size) / set_size
@@ -252,9 +271,12 @@ def main(_):
         else:
           total_conf_matrix += conf_matrix
 
-      tf.logging.info('Confusion Matrix:\n %s' % (total_conf_matrix))
-      tf.logging.info('Step %d: Validation without Unk = %.1f%%' % (training_step, 100*(total_conf_matrix.trace() - total_conf_matrix[1, 1]) / (total_conf_matrix.sum().sum() - total_conf_matrix[1, :].sum() - total_conf_matrix[:, 1].sum() + total_conf_matrix[1, 1])))
-      tf.logging.info('Step %d: Validation accuracy = %.1f%% (N=%d)' % (training_step, total_accuracy * 100, set_size))
+      if FLAGS.pretrain:
+        tf.logging.info('Step %d: Validation accuracy = %.1f%% (N=%d)' % (training_step, total_accuracy * 100, set_size))
+      else:
+        tf.logging.info('Confusion Matrix:\n %s' % (total_conf_matrix))
+        tf.logging.info('Step %d: Validation without Unk = %.1f%%' % (training_step, 100*(total_conf_matrix.trace() - total_conf_matrix[1, 1]) / (total_conf_matrix.sum().sum() - total_conf_matrix[1, :].sum() - total_conf_matrix[:, 1].sum() + total_conf_matrix[1, 1])))
+        tf.logging.info('Step %d: Validation accuracy = %.1f%% (N=%d)' % (training_step, total_accuracy * 100, set_size))
 
 
     # Save the model checkpoint periodically.

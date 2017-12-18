@@ -64,7 +64,8 @@ def prepare_model_settings(label_count, sample_rate, clip_duration_ms,
       'num_units': num_units,
       'use_attn' : use_attn,
       'attn_size': attn_size,
-      'raw_data': flags.raw_data
+      'raw_data': flags.raw_data,
+    'pretrain': flags.pretrain
   }
 
 
@@ -117,8 +118,6 @@ def create_model(fingerprint_input, model_settings, model_architecture,
     return create_att_lstm_model(fingerprint_input, model_settings, is_training)
   elif model_architecture == 'lstm':
     return create_lstm_model(fingerprint_input, model_settings, is_training)
-  elif model_architecture == 'pretrain_attn':
-      return create_pretrain_attn(fingerprint_input, model_settings, is_training)
   elif model_architecture == 'linear':
     return create_linear_model(fingerprint_input, model_settings, is_training)
   else:
@@ -175,16 +174,6 @@ def create_single_fc_model(fingerprint_input, model_settings, is_training):
     return logits, dropout_prob
   else:
     return logits
-
-
-def create_pretrain_attn(fingerprint_input, model_settings, is_training):
-
-    model_settings['pretrain'] = True
-    if is_training:
-        output, dropout = create_lstm_model(fingerprint_input, model_settings, is_training)
-    else:
-        output = create_lstm_model(fingerprint_input, model_settings, is_training)
-
 
 def create_att_lstm_model(fingerprint_input, model_settings, is_training):
     """
