@@ -90,9 +90,9 @@ def main(_):
     model_settings = models.prepare_model_settings(
       len(input_data_prediction.prepare_words_list(FLAGS.wanted_words.split(','))),
       FLAGS.sample_rate, FLAGS.clip_duration_ms, FLAGS.window_size_ms,
-      FLAGS.window_stride_ms, FLAGS.dct_coefficient_count, FLAGS.num_layers, FLAGS.num_units, FLAGS.use_attn, FLAGS.attn_size)
+        FLAGS.window_stride_ms, FLAGS.dct_coefficient_count, FLAGS.num_layers, FLAGS.num_units, FLAGS.use_attn, FLAGS.attn_size, FLAGS)
 
-    audio_processor = input_data_prediction.AudioProcessor('/home/guillaume/speech_dataset/test/audio', model_settings)
+    audio_processor = input_data_prediction.AudioProcessor('/home/ashukla/devel/spch/speech_dataset/test/audio', model_settings)
 
 
     window_size_ms = str(int(FLAGS.window_size_ms))
@@ -106,7 +106,7 @@ def main(_):
     print('dct_coefficient_count: ', dct_coefficient_count)
 
     dataset = audio_processor.get_data(model_settings, sess)
-    save_dir = '/home/guillaume/speech_dataset/test/numpy/'
+    save_dir = '/home/ashukla/devel/spch/speech_dataset/test/numpy/'
     np.save(save_dir+'test_dataset_wsize' + str(window_size_ms) + '_wstride' + window_stride_ms + '_dct' + dct_coefficient_count + '_.npy', dataset)
 
     filenames = np.array([x.split('/')[-1] for x in audio_processor.testing_data])

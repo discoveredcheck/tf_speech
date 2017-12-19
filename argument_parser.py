@@ -91,7 +91,7 @@ def create_parser():
     parser.add_argument(
         '--how_many_training_steps',
         type=str,
-        default='10000,10000',
+        default='1000000,1000000',
         help='How many training loops to run', )
     parser.add_argument(
         '--eval_step_interval',

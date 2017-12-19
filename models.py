@@ -249,6 +249,7 @@ def create_lstm_model(fingerprint_input, model_settings, is_training):
     """
     Vanila lstm
     """
+    print('my big model')
     if is_training:
         dropout_prob = tf.placeholder(tf.float32, name='dropout_prob')
 
@@ -260,22 +261,36 @@ def create_lstm_model(fingerprint_input, model_settings, is_training):
 
     fingerprint_2d = tf.reshape(fingerprint_input, [-1, input_time_size, input_frequency_size])
     fingerprint_2d = fingerprint_2d[:, :, :]
-
+    #fingerprint_2d = tf.layers.dense(fingerprint_2d, units=1000, activation=tf.tanh)
+    #fingerprint_2d = tf.nn.dropout(fingerprint_2d, keep_prob=0.3)
+    #fingerprint_2d = tf.layers.dense(fingerprint_2d, units=2000, activation=tf.tanh)
+    #fingerprint_2d = tf.nn.dropout(fingerprint_2d, keep_prob=0.5)
     #mask = tf.get_variable(shape=(input_frequency_size), dtype=tf.float32, name='freq_mask')
     #fingerprint_2d = fingerprint_2d * mask
     def lstm_cell(lstm_size): return tf.contrib.rnn.DropoutWrapper(tf.contrib.rnn.LSTMCell(lstm_size, use_peepholes=True), output_keep_prob=dropout_prob)
 
-    stacked_lstm = tf.contrib.rnn.MultiRNNCell([lstm_cell(lstm_size) for _ in range(number_of_layers)])
-    output, state = tf.nn.dynamic_rnn(stacked_lstm, fingerprint_2d, dtype=tf.float32)
-
+    if True:
+      stacked_lstm = tf.contrib.rnn.MultiRNNCell([lstm_cell(lstm_size) for _ in range(number_of_layers)])
+      full_output, state = tf.nn.dynamic_rnn(stacked_lstm, fingerprint_2d, dtype=tf.float32)
+      output = full_output[:,-1,:]
+    else:
+      stacked_lstm_fw = lstm_cell(lstm_size)
+      stacked_lstm_bw = lstm_cell(lstm_size)
+      full_output, state = tf.nn.bidirectional_dynamic_rnn(stacked_lstm_fw, stacked_lstm_bw, fingerprint_2d, dtype=tf.float32)
+      print(full_output[0][:,-1,:])
+      output = tf.concat((full_output[0][:, -1, :], full_output[1][:, 0, :]), axis=1)
+      print(output)
+      
+    #output = tf.layers.dense(output, units=2000, activation=None)
+    #output = tf.nn.dropout(output, keep_prob=0.5)
     label_count = model_settings['label_count']
-    final_fc = tf.layers.dense(output[:, -1, :], label_count)
+    final_fc = tf.layers.dense(output, label_count)
 
     if is_pretraining:
       if is_training:
-        return output, dropout_prob
+        return full_output, dropout_prob
       else:
-        return output
+        return full_output
     else:
       if is_training:
         return final_fc, dropout_prob

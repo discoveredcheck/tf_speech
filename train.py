@@ -162,7 +162,7 @@ def main(_):
   with tf.name_scope('train'), tf.control_dependencies(control_dependencies):
     learning_rate_input = tf.placeholder(
         tf.float32, [], name='learning_rate_input')
-    train_step = tf.train.AdamOptimizer().minimize(cross_entropy_mean)
+    train_step = tf.train.AdamOptimizer(1e-4).minimize(cross_entropy_mean)
 
   if FLAGS.pretrain==1:
     evaluation_step = cross_entropy_mean
@@ -181,7 +181,7 @@ def main(_):
   global_step = tf.contrib.framework.get_or_create_global_step()
   increment_global_step = tf.assign(global_step, global_step + 1)
 
-  saver = tf.train.Saver(tf.global_variables())
+  saver = tf.train.Saver(tf.global_variables(), max_to_keep=50)
 
   # Merge all the summaries and write them out to /tmp/retrain_logs (by default)
   merged_summaries = tf.summary.merge_all()
@@ -189,7 +189,7 @@ def main(_):
   validation_writer = tf.summary.FileWriter(FLAGS.summaries_dir + '/validation')
 
   tf.global_variables_initializer().run()
-
+  start_step = 0
   if FLAGS.start_checkpoint:
     models.load_variables_from_checkpoint(sess, FLAGS.start_checkpoint)
     start_step = global_step.eval(session=sess)
