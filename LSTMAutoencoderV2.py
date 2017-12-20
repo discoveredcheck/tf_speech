@@ -5,7 +5,7 @@ from tensorflow.python.ops.rnn_cell import LSTMCell
 import numpy as np
 
 
-class LSTMAutoencoder(object):
+class LSTMAutoencoderV2(object):
   """Basic version of LSTM-autoencoder.
   (cf. http://arxiv.org/abs/1502.04681)
 

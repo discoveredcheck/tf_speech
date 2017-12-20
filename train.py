@@ -92,6 +92,8 @@ def main(_):
   # Start a new TensorFlow session.
   sess = tf.InteractiveSession()
 
+  print('\nFLAGS====> ', FLAGS)
+
   # Begin by making sure we have the training data we need. If you already have
   # training data of your own, use `--data_url= ` on the command line to avoid
   # downloading.
@@ -107,13 +109,7 @@ def main(_):
   fingerprint_size = model_settings['fingerprint_size']
   label_count = model_settings['label_count']
   time_shift_samples = int((FLAGS.time_shift_ms * FLAGS.sample_rate) / 1000)
-  # Figure out the learning rates for each training phase. Since it's often
-  # effective to have high learning rates at the start of training, followed by
-  # lower levels towards the end, the number of steps and learning rates can be
-  # specified as comma-separated lists to define the rate at each stage. For
-  # example --how_many_training_steps=10000,3000 --learning_rate=0.001,0.0001
-  # will run 13,000 training loops in total, with a rate of 0.001 for the first
-  # 10,000, and 0.0001 for the final 3,000.
+
   training_steps_list = list(map(int, FLAGS.how_many_training_steps.split(',')))
   learning_rates_list = list(map(float, FLAGS.learning_rate.split(',')))
   if len(training_steps_list) != len(learning_rates_list):
@@ -125,7 +121,14 @@ def main(_):
   # (N x fingerprint_size)
   fingerprint_input = tf.placeholder(tf.float32, [None, fingerprint_size], name='fingerprint_input')
 
-  logits, dropout_prob = models.create_model(
+  if FLAGS.pretrain == 1:
+    output, state, dropout_prob = models.create_model(
+          fingerprint_input,
+          model_settings,
+          FLAGS.model_architecture,
+          is_training=True)
+  else:
+    logits, dropout_prob = models.create_model(
       fingerprint_input,
       model_settings,
       FLAGS.model_architecture,
@@ -146,11 +149,21 @@ def main(_):
     input_frequency_size = model_settings['dct_coefficient_count']
     input_time_size = model_settings['spectrogram_length']
     fingerprint_2d = tf.reshape(fingerprint_input, [-1, input_time_size, input_frequency_size])
-    projected = tf.layers.dense(logits, units=input_frequency_size, use_bias=True, name='lstm_reconst')
-    
-    bsize = tf.shape(projected)[0]
+
+    cell = tf.contrib.rnn.LSTMCell(model_settings['num_units'], use_peepholes=True)
+    init_state = tf.concat((state[0].c, state[0].h), -1)
+    dec_state = state[0]
+    dec_input_ = tf.zeros(shape=(tf.shape(fingerprint_2d)[0], model_settings['num_units']), dtype=tf.float32)
+    dec_outputs = []
+    for step in range(input_time_size):
+        dec_input_, dec_state = cell(tf.concat((dec_input_, init_state), -1), dec_state)
+        dec_outputs.append(dec_input_)
+    dec_outputs = tf.stack(dec_outputs, axis=1)
+    projected = tf.layers.dense(dec_outputs, units=input_frequency_size, use_bias=True, name='lstm_proj')
+
     next_word = tf.pad(fingerprint_2d[:,1:,:], [[0,0],[0,1],[0,0]])
-    cross_entropy_mean = tf.losses.mean_squared_error(next_word, projected)
+
+    cross_entropy_mean = tf.reduce_mean(tf.square(next_word - projected))
   else:
     # Create the back propagation and training evaluation machinery in the graph.
     with tf.name_scope('cross_entropy'):
@@ -190,6 +203,7 @@ def main(_):
 
   tf.global_variables_initializer().run()
 
+  start_step=0
   if FLAGS.start_checkpoint:
     models.load_variables_from_checkpoint(sess, FLAGS.start_checkpoint)
     start_step = global_step.eval(session=sess)

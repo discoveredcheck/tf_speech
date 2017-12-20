@@ -10,8 +10,8 @@ class bcolors:
     BOLD = '\033[1m'
     UNDERLINE = '\033[4m'
 
-SUMMARY_DIR = '/home/ashukla/devel/spch/speech_dataset/training_logs/'
-
+#SUMMARY_DIR = '/home/ashukla/devel/spch/speech_dataset/training_logs/'
+SUMMARY_DIR = '/home/guillaume/speech_dataset/training_logs/'
 
 def get_summaries_dir_ckpt(name):
     return '--summaries_dir=' + SUMMARY_DIR + name + ' --ckpt_name=' + name
@@ -89,7 +89,7 @@ if __name__ == '__main__':
         run_test([get_model_architecture(model_name), get_num_units(units), get_num_layers(1), get_batch(100), '--start_checkpoint=' + ckpt_dir + ckpt])
     else:
         models = []
-        models.append([get_model_architecture('lstm'), get_num_units(400), get_num_layers(1), get_dropout_prob(0.9), get_batch(20), get_pretrain(False), get_summaries_dir_ckpt('lstm_400_drop_0.9'), '--start_checkpoint=../speech_dataset/speech_commands_train/ptlstm_400_drop_0.9.ckpt-400'])
+        models.append([get_model_architecture('lstm'), get_num_units(400), get_num_layers(1), get_dropout_prob(0.9), get_batch(100), get_pretrain(True), get_summaries_dir_ckpt('lstm_400_drop_0.9_decoder_cat')])
         #models.append([get_model_architecture('lstm'), get_num_units(400), get_num_layers(1), get_dropout_prob(0.9), get_batch(20), get_pretrain(True), get_summaries_dir_ckpt('ptlstm_400_drop_0.9')])
         # models.append([get_model_architecture('attn'), get_num_units(200), get_num_layers(1), get_dropout_prob(0.9), get_batch(100), get_summaries_dir_ckpt('attn_200_drop_0.9')])
         #models.append([get_model_architecture('conv1d'), get_dropout_prob(0.9), get_batch(100), get_summaries_dir_ckpt('conv1d_drop_0.9_clipped')])

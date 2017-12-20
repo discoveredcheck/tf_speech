@@ -229,9 +229,9 @@ def create_lstm_model(fingerprint_input, model_settings, is_training):
 
     if is_pretraining:
       if is_training:
-        return output, dropout_prob
+        return output, state, dropout_prob
       else:
-        return output
+        return output, state
     else:
       if is_training:
         return final_fc, dropout_prob

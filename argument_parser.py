@@ -1,5 +1,6 @@
 import argparse
 
+SPEECH_DIR = '/home/guillaume/speech_dataset'
 
 def create_parser():
 
@@ -14,7 +15,7 @@ def create_parser():
     parser.add_argument(
         '--data_dir',
         type=str,
-        default='/home/ashukla/devel/spch/speech_dataset/train/audio',
+        default=SPEECH_DIR + '/train/audio',
         help="""\
          Where to download the speech training data to.
          """)
@@ -91,7 +92,7 @@ def create_parser():
     parser.add_argument(
         '--how_many_training_steps',
         type=str,
-        default='10000,10000',
+        default='8000,8000',
         help='How many training loops to run', )
     parser.add_argument(
         '--eval_step_interval',
@@ -121,7 +122,7 @@ def create_parser():
     parser.add_argument(
         '--train_dir',
         type=str,
-        default='/home/ashukla/devel/spch/speech_dataset/speech_commands_train',
+        default=SPEECH_DIR + '/speech_commands_train',
         help='Directory to write event logs and checkpoint.')
     parser.add_argument(
         '--save_step_interval',

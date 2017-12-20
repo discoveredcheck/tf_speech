@@ -32,6 +32,7 @@ from six.moves import urllib
 from six.moves import xrange  # pylint: disable=redefined-builtin
 import tensorflow as tf
 
+
 from tensorflow.contrib.framework.python.ops import audio_ops as contrib_audio
 from tensorflow.python.ops import io_ops
 from tensorflow.python.platform import gfile
@@ -155,7 +156,8 @@ class AudioProcessor(object):
                wanted_words, validation_percentage, testing_percentage,
                model_settings):
     self.data_dir = data_dir
-    # self.maybe_download_and_extract_dataset(data_url, data_dir)
+    self.is_idx_random = True
+
     self.prepare_data_index(silence_percentage, unknown_percentage, wanted_words, validation_percentage, testing_percentage)
     print('prepare background data')
     self.prepare_background_data()
@@ -204,9 +206,7 @@ class AudioProcessor(object):
                       statinfo.st_size)
     tarfile.open(filepath, 'r:gz').extractall(dest_directory)
 
-  def prepare_data_index(self, silence_percentage, unknown_percentage,
-                         wanted_words, validation_percentage,
-                         testing_percentage):
+  def prepare_data_index(self, silence_percentage, unknown_percentage, wanted_words, validation_percentage, testing_percentage):
     """Prepares a list of the samples organized by set and label.
 
     The training loop needs a list of all the available data, organized by
@@ -263,6 +263,7 @@ class AudioProcessor(object):
         raise Exception('Expected to find ' + wanted_word +
                         ' in labels but only found ' +
                         ', '.join(all_words.keys()))
+
     # We need an arbitrary file to load as the input for the silence samples.
     # It's multiplied by zero later, so the content doesn't matter.
     silence_wav_path = self.data_index['training'][0]['file']
@@ -400,6 +401,12 @@ class AudioProcessor(object):
     """
     return len(self.data_index[mode])
 
+  def add_test_data(self,):
+    test_data = np.load('/home/guillaume/speech_dataset/test/numpy/test_dataset_wsize50_wstride10_dct40_.npy')
+
+  def get_size(self, mode):
+    return len(self.data_index[mode])
+
   def get_data(self, how_many, offset, model_settings, background_frequency,
                background_volume_range, time_shift, mode, sess):
     """Gather samples from the data set, applying transformations as needed.
@@ -436,6 +443,11 @@ class AudioProcessor(object):
       data = np.zeros((sample_count, model_settings['sample_rate']))
     else:
       data = np.zeros((sample_count, model_settings['fingerprint_size']))
+
+    if not self.is_idx_random:
+      data = np.zeros((1, model_settings['fingerprint_size']))
+      sample_count=1
+
     labels = np.zeros((sample_count, model_settings['label_count']))
     names = []
     desired_samples = model_settings['desired_samples']
@@ -447,8 +459,12 @@ class AudioProcessor(object):
       # Pick which audio sample to use.
       if how_many == -1 or pick_deterministically:
         sample_index = i
-      else:
+      elif self.is_idx_random:
         sample_index = np.random.randint(len(candidates))
+      else:
+        sample_index = how_many
+
+      # print('sample_index: ',  sample_index)
       sample = candidates[sample_index]
       # If we're time shifting, set up the offset for this sample.
       if time_shift > 0:
@@ -489,11 +505,16 @@ class AudioProcessor(object):
         input_dict[self.foreground_volume_placeholder_] = 0
       else:
         input_dict[self.foreground_volume_placeholder_] = 1
-      # Run the graph to produce the output audio.
-      data[i - offset, :] = sess.run(self.mfcc_, feed_dict=input_dict).flatten()
-      names.append(sample['label'])
-      label_index = self.word_to_index[sample['label']]
-      labels[i - offset, label_index] = 1
+      if not self.is_idx_random:
+        data = sess.run(self.mfcc_, feed_dict=input_dict).flatten()
+        labels = sample['label']
+        names = None
+      else:
+        # Run the graph to produce the output audio.
+        data[i - offset, :] = sess.run(self.mfcc_, feed_dict=input_dict).flatten()
+        names.append(sample['label'])
+        label_index = self.word_to_index[sample['label']]
+        labels[i - offset, label_index] = 1
     return data, labels, names
 
   def get_unprocessed_data(self, how_many, model_settings, mode):

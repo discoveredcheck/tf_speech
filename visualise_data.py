@@ -16,6 +16,7 @@ if __name__ == '__main__':
         FLAGS.sample_rate, FLAGS.clip_duration_ms, FLAGS.window_size_ms,
         FLAGS.window_stride_ms, FLAGS.dct_coefficient_count, FLAGS.num_layers, FLAGS.num_units, False, False, FLAGS)
 
+    saver = tf.train.import_meta_graph(FLAGS.)
     audio_processor = input_data.AudioProcessor(
           FLAGS.data_url, FLAGS.data_dir, FLAGS.silence_percentage,
           FLAGS.unknown_percentage,
