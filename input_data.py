@@ -165,6 +165,11 @@ class AudioProcessor(object):
     self.prepare_processing_graph(model_settings)
     print('AudioProcessor finished')
 
+    self.all_ssp_data = np.load('../../speech_dataset/test/numpy/test_dataset_wsize50_wstride10_dct40_.npy')
+    self.ssp_data_idx = np.random.permutation(len(self.all_ssp_data))
+    self.ssp_curr_idx = 0
+
+
   def maybe_download_and_extract_dataset(self, data_url, dest_directory):
     """Download and extract data set tar file.
 
@@ -516,6 +521,23 @@ class AudioProcessor(object):
         label_index = self.word_to_index[sample['label']]
         labels[i - offset, label_index] = 1
     return data, labels, names
+
+  def get_data_ssp(self, how_many, offset, model_settings, background_frequency,
+               background_volume_range, time_shift, mode, sess, ssp_frac):
+
+    sp_data, labels, names = self.get_data(how_many, offset, model_settings, background_frequency,
+               background_volume_range, time_shift, mode, sess)
+
+    en = self.ssp_curr_idx + int(how_many * ssp_frac)
+    st = self.ssp_curr_idx
+    ssp_data = self.all_ssp_data[self.ssp_data_idx[st:en], :]
+
+    self.ssp_curr_idx = en
+    if self.ssp_curr_idx >= len(self.all_ssp_data):
+      self.ssp_curr_idx = 0
+
+    labels2 = np.zeros((len(sp_data), labels.shape[1]))
+    return np.concatenate((sp_data, ssp_data), 0), np.concatenate((labels, labels2)), names
 
   def get_unprocessed_data(self, how_many, model_settings, mode):
     """Retrieve sample data for the given partition, with no transformations.

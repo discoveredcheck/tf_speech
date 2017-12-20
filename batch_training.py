@@ -57,9 +57,15 @@ def get_pretrain(value):
         return '--pretrain=0'
 
 
+def set_unknown(value):
+    return '--unknown_percentage='+str(value)
+
+
 def get_attn_param(num_param):
     return '--attn_size=' + str(num_param)
 
+def get_check_point(name):
+    return '--start_checkpoint='+ckpt_dir+name
 
 def run(model_parameters):
     print(bcolors.OKGREEN + bcolors.BOLD + 'run: ', " ".join(model_parameters) + bcolors.ENDC)
@@ -78,8 +84,8 @@ if __name__ == '__main__':
     import sys
     run_mode = sys.argv[1]
 
-    ckpt = 'lstm_5000_drop_0.9.ckpt-20000'
-    units = 4000
+    ckpt = 'lstm_800_drop_0.7_unknown90.ckpt-18000'
+    units = 800
     model_name = 'lstm'
 
     ckpt_dir = '/home/guillaume/speech_dataset/speech_commands_train/'
@@ -89,9 +95,11 @@ if __name__ == '__main__':
         run_test([get_model_architecture(model_name), get_num_units(units), get_num_layers(1), get_batch(100), '--start_checkpoint=' + ckpt_dir + ckpt])
     else:
         models = []
-        models.append([get_model_architecture('lstm'), get_num_units(400), get_num_layers(1), get_dropout_prob(0.9), get_batch(100), get_pretrain(True), get_summaries_dir_ckpt('lstm_400_drop_0.9_decoder_cat')])
+        # models.append([get_model_architecture('lstm'), get_num_units(600), get_num_layers(1), get_dropout_prob(0.8), set_unknown(50.0), get_batch(100), get_pretrain(False), get_summaries_dir_ckpt('lstm_600_drop_0.8_unknown50'), get_check_point(ckpt)])
+        models.append([get_model_architecture('lstm'), get_num_units(800), get_num_layers(1), get_dropout_prob(0.7), set_unknown(90.0), get_batch(100), get_pretrain(True), get_summaries_dir_ckpt('lstm_800_drop_0.7_unknown90_semi')])
+
         #models.append([get_model_architecture('lstm'), get_num_units(400), get_num_layers(1), get_dropout_prob(0.9), get_batch(20), get_pretrain(True), get_summaries_dir_ckpt('ptlstm_400_drop_0.9')])
-        # models.append([get_model_architecture('attn'), get_num_units(200), get_num_layers(1), get_dropout_prob(0.9), get_batch(100), get_summaries_dir_ckpt('attn_200_drop_0.9')])
+        #models.append([get_model_architecture('attn'), get_num_units(200), get_num_layers(1), get_dropout_prob(0.9), get_batch(100), get_summaries_dir_ckpt('attn_200_drop_0.9')])
         #models.append([get_model_architecture('conv1d'), get_dropout_prob(0.9), get_batch(100), get_summaries_dir_ckpt('conv1d_drop_0.9_clipped')])
 
         i=1

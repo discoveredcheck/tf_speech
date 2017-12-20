@@ -97,6 +97,7 @@ def main(_):
   # Begin by making sure we have the training data we need. If you already have
   # training data of your own, use `--data_url= ` on the command line to avoid
   # downloading.
+  alpha = 0.5
   model_settings = models.prepare_model_settings(
       len(input_data.prepare_words_list(FLAGS.wanted_words.split(','))),
       FLAGS.sample_rate, FLAGS.clip_duration_ms, FLAGS.window_size_ms,
@@ -136,7 +137,7 @@ def main(_):
 
     # Define loss and optimizer
   ground_truth_input = tf.placeholder(tf.float32, [None, label_count], name='groundtruth_input')
-    
+
   # Optionally we can add runtime checks to spot when NaNs or other symptoms of
   # numerical errors start occurring during training.
   control_dependencies = []
@@ -150,20 +151,30 @@ def main(_):
     input_time_size = model_settings['spectrogram_length']
     fingerprint_2d = tf.reshape(fingerprint_input, [-1, input_time_size, input_frequency_size])
 
+    semisup_idx = tf.to_float(tf.equal(tf.reduce_sum(ground_truth_input, 1), 0))
+    sup_idx = tf.to_float(tf.not_equal(tf.reduce_sum(ground_truth_input, 1), 0))
+
+    context = tf.reduce_mean(output, axis=1)
     cell = tf.contrib.rnn.LSTMCell(model_settings['num_units'], use_peepholes=True)
-    init_state = tf.concat((state[0].c, state[0].h), -1)
-    dec_state = state[0]
+    dec_state = tf.contrib.rnn.LSTMStateTuple(context, context)
     dec_input_ = tf.zeros(shape=(tf.shape(fingerprint_2d)[0], model_settings['num_units']), dtype=tf.float32)
     dec_outputs = []
     for step in range(input_time_size):
-        dec_input_, dec_state = cell(tf.concat((dec_input_, init_state), -1), dec_state)
+        dec_input_, dec_state = cell(tf.concat((dec_input_, context), -1), dec_state)
         dec_outputs.append(dec_input_)
     dec_outputs = tf.stack(dec_outputs, axis=1)
     projected = tf.layers.dense(dec_outputs, units=input_frequency_size, use_bias=True, name='lstm_proj')
 
+    context = tf.layers.dense(context, units=250, activation=tf.tanh)
+    logits = tf.layers.dense(context, units=label_count, activation=tf.nn.softmax)
+
+    sup_loss = tf.reduce_mean(tf.nn.softmax_cross_entropy_with_logits(labels=ground_truth_input, logits=logits) * sup_idx)
+
     next_word = tf.pad(fingerprint_2d[:,1:,:], [[0,0],[0,1],[0,0]])
 
-    cross_entropy_mean = tf.reduce_mean(tf.square(next_word - projected))
+    semisup_loss = tf.reduce_mean(tf.square(next_word - projected) * tf.expand_dims(tf.expand_dims(semisup_idx, 1),2))/15.0
+
+    cross_entropy_mean = alpha * sup_loss + (1.0-alpha) * semisup_loss
   else:
     # Create the back propagation and training evaluation machinery in the graph.
     with tf.name_scope('cross_entropy'):
@@ -175,10 +186,12 @@ def main(_):
   with tf.name_scope('train'), tf.control_dependencies(control_dependencies):
     learning_rate_input = tf.placeholder(
         tf.float32, [], name='learning_rate_input')
-    train_step = tf.train.AdamOptimizer().minimize(cross_entropy_mean)
+    train_step = tf.train.AdamOptimizer(1e-4).minimize(cross_entropy_mean)
 
   if FLAGS.pretrain==1:
-    evaluation_step = cross_entropy_mean
+    evaluation_step_ssp = semisup_loss
+    evaluation_step_sp = sup_loss
+
     confusion_matrix = tf.no_op()
     predicted_indices = tf.no_op()
     expected_indices = tf.no_op()
@@ -190,7 +203,7 @@ def main(_):
     confusion_matrix = tf.confusion_matrix(expected_indices, predicted_indices, num_classes=label_count)
     evaluation_step = tf.reduce_mean(tf.cast(correct_prediction, tf.float32))
 
-  tf.summary.scalar('accuracy', evaluation_step)
+  tf.summary.scalar('accuracy', evaluation_step_sp)
   global_step = tf.contrib.framework.get_or_create_global_step()
   increment_global_step = tf.assign(global_step, global_step + 1)
 
@@ -231,13 +244,13 @@ def main(_):
         break
     # Pull the audio samples we'll use for training.
     # FLAGS.batch_size
-    train_fingerprints, train_ground_truth, _ = audio_processor.get_data(FLAGS.batch_size, 0, model_settings, FLAGS.background_frequency, FLAGS.background_volume, time_shift_samples, 'training', sess)
+    train_fingerprints, train_ground_truth, _ = audio_processor.get_data_ssp(FLAGS.batch_size, 0, model_settings, FLAGS.background_frequency, FLAGS.background_volume, time_shift_samples, 'training', sess, 1.0)
     # Run the graph with this batch of training data.
     if True:
-      train_summary, train_accuracy, cross_entropy_value, _, _ = sess.run(
+      train_summary, train_accuracy, cross_entropy_value, _, _, _semisup_loss, _sup_loss = sess.run(
               [
-                  merged_summaries, evaluation_step, cross_entropy_mean, train_step,
-                  increment_global_step
+                  merged_summaries, evaluation_step_sp, cross_entropy_mean, train_step,
+                  increment_global_step, semisup_loss, sup_loss
               ],
               feed_dict={
                   fingerprint_input: train_fingerprints,
@@ -247,8 +260,8 @@ def main(_):
               })
       train_writer.add_summary(train_summary, training_step)
       if training_step % 1000 == 0:
-        tf.logging.info('Step #%d: rate %f, accuracy %.1f%%, cross entropy %f' % (
-          training_step, learning_rate_value, train_accuracy * 100, cross_entropy_value))
+        tf.logging.info('Step #%d: rate %f, accuracy %.1f%%, ssp loss %f, sp loss %f, total loss %f' % (
+          training_step, learning_rate_value, train_accuracy * 100, _semisup_loss, _sup_loss, cross_entropy_value))
     else:
         emb = sess.run(tf.get_default_graph().get_tensor_by_name('rnn/transpose:0')[:,-1,:], feed_dict={fingerprint_input: train_fingerprints,
                                                                ground_truth_input: train_ground_truth,
@@ -262,14 +275,15 @@ def main(_):
     is_last_step = (training_step == training_steps_max)
     if (training_step % FLAGS.eval_step_interval) == 0 or is_last_step:
       set_size = audio_processor.set_size('validation')
-      total_accuracy = 0
+      total_accuracy_ssp = 0
+      total_accuracy_sp = 0
       total_conf_matrix = None
       for i in xrange(0, set_size, FLAGS.batch_size):
         validation_fingerprints, validation_ground_truth, _ = (audio_processor.get_data(FLAGS.batch_size, i, model_settings, 0.0, 0.0, 0, 'validation', sess))
         # Run a validation step and capture training summaries for TensorBoard
         # with the `merged` op.
-        validation_summary, validation_accuracy, conf_matrix = sess.run(
-              [merged_summaries, evaluation_step, confusion_matrix],
+        validation_summary, validation_accuracy_sp, validation_accuracy_ssp, conf_matrix = sess.run(
+              [merged_summaries, evaluation_step_sp, evaluation_step_ssp, confusion_matrix],
               feed_dict={
                   fingerprint_input: validation_fingerprints,
                   ground_truth_input: validation_ground_truth,
@@ -277,18 +291,19 @@ def main(_):
               })
         validation_writer.add_summary(validation_summary, training_step)
         batch_size = min(FLAGS.batch_size, set_size - i)
-        total_accuracy += (validation_accuracy * batch_size) / set_size
+        total_accuracy_ssp += (validation_accuracy_ssp * batch_size) / set_size
+        total_accuracy_sp += (validation_accuracy_sp * batch_size) / set_size
         if total_conf_matrix is None:
           total_conf_matrix = conf_matrix
         else:
           total_conf_matrix += conf_matrix
 
       if FLAGS.pretrain==1:
-        tf.logging.info('Step %d: Validation accuracy = %.1f%% (N=%d)' % (training_step, total_accuracy * 100, set_size))
+        tf.logging.info('Step %d: Validation ssp = %.1f%% Validation sp = %.1f%% (N=%d)' % (training_step, total_accuracy_ssp * 100, total_accuracy_sp * 100, set_size))
       else:
         tf.logging.info('Confusion Matrix:\n %s' % (total_conf_matrix))
         tf.logging.info('Step %d: Validation without Unk = %.1f%%' % (training_step, 100*(total_conf_matrix.trace() - total_conf_matrix[1, 1]) / (total_conf_matrix.sum().sum() - total_conf_matrix[1, :].sum() - total_conf_matrix[:, 1].sum() + total_conf_matrix[1, 1])))
-        tf.logging.info('Step %d: Validation accuracy = %.1f%% (N=%d)' % (training_step, total_accuracy * 100, set_size))
+        tf.logging.info('Step %d: Validation accuracy = %.1f%% (N=%d)' % (training_step, total_accuracy_sp * 100, set_size))
 
 
     # Save the model checkpoint periodically.

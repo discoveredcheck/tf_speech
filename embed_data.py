@@ -28,7 +28,7 @@ def main(_):
     FLAGS.validation_percentage = 0.0
     FLAGS.testing_percentage = 0.0
     FLAGS.silence_percentage = 10.0
-    FLAGS.batch_size=10000
+    FLAGS.batch_size=5000
 
 
     model_settings = models.prepare_model_settings(
