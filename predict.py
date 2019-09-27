@@ -88,8 +88,8 @@ FLAGS = None
 def main(_):
     tf.logging.set_verbosity(tf.logging.INFO)
 
-    test_fingerprints = np.load('../../speech_dataset/test/numpy/test_dataset_wsize50_wstride10_dct40_.npy')
-    filenames = np.load('../../speech_dataset/test/numpy/filenames_wsize50_wstride10_dct40_.npy')
+    test_fingerprints = np.load('../speech_dataset/test/numpy/test_dataset_wsize50_wstride10_dct40_.npy')
+    filenames = np.load('../speech_dataset/test/numpy/filenames_wsize50_wstride10_dct40_.npy')
 
     assert len(test_fingerprints) == len(filenames)
 

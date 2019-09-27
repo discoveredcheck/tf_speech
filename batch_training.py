@@ -10,7 +10,7 @@ class bcolors:
     BOLD = '\033[1m'
     UNDERLINE = '\033[4m'
 
-SUMMARY_DIR = '/home/guillaume/speech_dataset/training_logs/'
+SUMMARY_DIR = '/home/ashukla/devel/spch/speech_dataset/training_logs/'
 
 
 def get_summaries_dir_ckpt(name):
@@ -50,6 +50,12 @@ def use_raw(value):
     else:
         return '--raw_data=0'
 
+def get_pretrain(value):
+    if value:
+        return '--pretrain=1'
+    else:
+        return '--pretrain=0'
+
 
 def get_attn_param(num_param):
     return '--attn_size=' + str(num_param)
@@ -72,18 +78,20 @@ if __name__ == '__main__':
     import sys
     run_mode = sys.argv[1]
 
-    ckpt = 'lstm_5000_drop_0.9.ckpt-20000'
-    units = 4000
+    ckpt = 'lstm_400_basic_lr3.ckpt-10400'
+    units = 800
     model_name = 'lstm'
 
-    ckpt_dir = '/home/guillaume/speech_dataset/speech_commands_train/'
+    ckpt_dir = '/home/ashukla/devel/spch/speech_dataset/speech_commands_train/'
     if run_mode == 'predict':
         run_prediction([get_model_architecture(model_name), get_num_units(units), get_num_layers(1), get_batch(100), '--start_checkpoint=' + ckpt_dir + ckpt])
     elif run_mode == 'test':
         run_test([get_model_architecture(model_name), get_num_units(units), get_num_layers(1), get_batch(100), '--start_checkpoint=' + ckpt_dir + ckpt])
     else:
         models = []
-        models.append([get_model_architecture('lstm'), get_num_units(4000), get_num_layers(1), get_dropout_prob(0.9), get_batch(100), get_summaries_dir_ckpt('lstm_5000_drop_0.9')])
+        #models.append([get_model_architecture('lstm'), get_num_units(400), get_num_layers(1), get_dropout_prob(0.9), get_batch(20), get_pretrain(False), get_summaries_dir_ckpt('lstm_400_drop_0.9'), '--start_checkpoint=../speech_dataset/speech_commands_train/ptlstm_400_drop_0.9.ckpt-400'])
+        #models.append([get_model_architecture('lstm'), get_num_units(400), get_num_layers(1), get_dropout_prob(0.9), get_batch(20), get_pretrain(True), get_summaries_dir_ckpt('ptlstm_400_drop_0.9')])
+        models.append([get_model_architecture('lstm'), get_num_units(800), get_num_layers(1), get_dropout_prob(0.85), get_batch(100), get_pretrain(False), get_summaries_dir_ckpt('lstm_400_basic_lr3'), '--start_checkpoint=/home/ashukla/devel/spch/speech_dataset/speech_commands_train/lstm_400_basic_lr2.ckpt-8000'])
         # models.append([get_model_architecture('attn'), get_num_units(200), get_num_layers(1), get_dropout_prob(0.9), get_batch(100), get_summaries_dir_ckpt('attn_200_drop_0.9')])
         #models.append([get_model_architecture('conv1d'), get_dropout_prob(0.9), get_batch(100), get_summaries_dir_ckpt('conv1d_drop_0.9_clipped')])
 

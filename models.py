@@ -64,7 +64,8 @@ def prepare_model_settings(label_count, sample_rate, clip_duration_ms,
       'num_units': num_units,
       'use_attn' : use_attn,
       'attn_size': attn_size,
-      'raw_data': flags.raw_data
+      'raw_data': flags.raw_data,
+    'pretrain': flags.pretrain
   }
 
 
@@ -117,8 +118,6 @@ def create_model(fingerprint_input, model_settings, model_architecture,
     return create_att_lstm_model(fingerprint_input, model_settings, is_training)
   elif model_architecture == 'lstm':
     return create_lstm_model(fingerprint_input, model_settings, is_training)
-  elif model_architecture == 'pretrain_attn':
-      return create_pretrain_attn(fingerprint_input, model_settings, is_training)
   elif model_architecture == 'linear':
     return create_linear_model(fingerprint_input, model_settings, is_training)
   else:
@@ -134,8 +133,22 @@ def load_variables_from_checkpoint(sess, start_checkpoint):
     sess: TensorFlow session.
     start_checkpoint: Path to saved checkpoint on disk.
   """
-  saver = tf.train.Saver(tf.global_variables())
-  saver.restore(sess, start_checkpoint)
+  if False:
+    #saver = tf.train.Saver(tf.global_variables())
+    #saver = tf.train.import_meta_graph(start_checkpoint+'.meta')
+    saver = tf.train.Saver()
+    saver.restore(sess, start_checkpoint)
+  else:
+    reader = tf.train.NewCheckpointReader(start_checkpoint)
+    nlist = dict()
+    for v in tf.global_variables():
+      to_check = v.name if v.name[-2:] != ':0' else v.name[:-2]
+      if reader.has_tensor(to_check):
+        nlist[v.op.name] = v
+      else:
+        print('!!WARNING!! op {} not found in checkpoint'.format(v.name))
+    saver = tf.train.Saver(nlist)
+    saver.restore(sess, start_checkpoint)
 
 
 def create_single_fc_model(fingerprint_input, model_settings, is_training):
@@ -175,16 +188,6 @@ def create_single_fc_model(fingerprint_input, model_settings, is_training):
     return logits, dropout_prob
   else:
     return logits
-
-
-def create_pretrain_attn(fingerprint_input, model_settings, is_training):
-
-    model_settings['pretrain'] = True
-    if is_training:
-        output, dropout = create_lstm_model(fingerprint_input, model_settings, is_training)
-    else:
-        output = create_lstm_model(fingerprint_input, model_settings, is_training)
-
 
 def create_att_lstm_model(fingerprint_input, model_settings, is_training):
     """
@@ -246,6 +249,7 @@ def create_lstm_model(fingerprint_input, model_settings, is_training):
     """
     Vanila lstm
     """
+    print('my big model')
     if is_training:
         dropout_prob = tf.placeholder(tf.float32, name='dropout_prob')
 
@@ -257,27 +261,40 @@ def create_lstm_model(fingerprint_input, model_settings, is_training):
 
     fingerprint_2d = tf.reshape(fingerprint_input, [-1, input_time_size, input_frequency_size])
     fingerprint_2d = fingerprint_2d[:, :, :]
-
+    #fingerprint_2d = tf.layers.dense(fingerprint_2d, units=1000, activation=tf.tanh)
+    #fingerprint_2d = tf.nn.dropout(fingerprint_2d, keep_prob=0.3)
+    #fingerprint_2d = tf.layers.dense(fingerprint_2d, units=2000, activation=tf.tanh)
+    #fingerprint_2d = tf.nn.dropout(fingerprint_2d, keep_prob=0.5)
     #mask = tf.get_variable(shape=(input_frequency_size), dtype=tf.float32, name='freq_mask')
     #fingerprint_2d = fingerprint_2d * mask
     def lstm_cell(lstm_size): return tf.contrib.rnn.DropoutWrapper(tf.contrib.rnn.LSTMCell(lstm_size, use_peepholes=True), output_keep_prob=dropout_prob)
 
-    stacked_lstm = tf.contrib.rnn.MultiRNNCell([lstm_cell(lstm_size) for _ in range(number_of_layers)])
-    output, state = tf.nn.dynamic_rnn(stacked_lstm, fingerprint_2d, dtype=tf.float32)
+    if True:
+      stacked_lstm = tf.contrib.rnn.MultiRNNCell([lstm_cell(lstm_size) for _ in range(number_of_layers)])
+      full_output, state = tf.nn.dynamic_rnn(stacked_lstm, fingerprint_2d, dtype=tf.float32)
+      output = full_output[:,-1,:]
+    else:
+      stacked_lstm_fw = lstm_cell(lstm_size)
+      stacked_lstm_bw = lstm_cell(lstm_size)
+      full_output, state = tf.nn.bidirectional_dynamic_rnn(stacked_lstm_fw, stacked_lstm_bw, fingerprint_2d, dtype=tf.float32)
+      print(full_output[0][:,-1,:])
+      output = tf.concat((full_output[0][:, -1, :], full_output[1][:, 0, :]), axis=1)
+      print(output)
+      
+    #output = tf.layers.dense(output, units=2000, activation=None)
+    #output = tf.nn.dropout(output, keep_prob=0.5)
+    label_count = model_settings['label_count']
+    final_fc = tf.layers.dense(output, label_count)
 
     if is_pretraining:
-        if is_training:
-            return output, dropout_prob
-        else:
-            return output
-
-    label_count = model_settings['label_count']
-
-    final_fc = tf.layers.dense(output[:, -1, :], label_count)
-
-    if is_training:
-        return final_fc, dropout_prob
+      if is_training:
+        return full_output, dropout_prob
+      else:
+        return full_output
     else:
+      if is_training:
+        return final_fc, dropout_prob
+      else:
         return final_fc
 
 
